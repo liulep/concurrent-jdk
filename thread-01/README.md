@@ -646,3 +646,191 @@ public class ThreadGroupTest {
     }
 }
 ```
+
+#### 1.3.2 线程组自动归属
+
+如果线程组不指定线程组所属的线程组时，则创建的线程组会自动归属到当前线程所属的线程组中.
+
+```java
+//线程组自动归属
+public static void threadGroupV3() throws InterruptedException {
+    ThreadGroup threadGroup = new ThreadGroup("liulep-group");
+    ThreadGroup subThreadGroup = new ThreadGroup(threadGroup, "liulep-sub-group");
+    Thread threadA = new Thread(threadGroup, () -> {
+        System.out.println("子线程名称：" + Thread.currentThread().getName());
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+    });
+    Thread threadB = new Thread(subThreadGroup, () -> {
+        System.out.println("子线程名称：" + Thread.currentThread().getName());
+        //创建一个新的线程组
+        ThreadGroup threadGroup1 = new ThreadGroup("liulep-thread-group");
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
+        }
+    });
+    threadA.start();
+    threadB.start();
+    //保证子线程全都启动
+    Thread.sleep(500);
+    System.out.println("父线程组中活跃的线程数量为"+ threadGroup.activeCount());
+    System.out.println("子线程组中活跃的线程数量为"+ subThreadGroup.activeCount());
+    System.out.println("父线程组中活跃的线程组数量为"+ threadGroup.activeGroupCount());
+    System.out.println("子线程组中活跃的线程组数量为"+ subThreadGroup.activeGroupCount());
+}
+```
+
+可以发现子线程下活跃的数量为1，说明在子线程组下所创建的线程组自动归属到了该线程所属的线程组当中。
+
+#### 1.3.3 顶级线程组
+
+又称根线程组，是JVM中最顶级的线程组
+
+```java
+//顶级线程组
+public class ThreadSystemThreadGroupTest {
+
+    public static void main(String[] args) {
+        //当前线程组
+        System.out.println(Thread.currentThread().getThreadGroup().getName());
+        //当前线程组的父线程组
+        System.out.println(Thread.currentThread().getThreadGroup().getParent().getName());
+        //当前线程组的爷爷线程组
+        System.out.println(Thread.currentThread().getThreadGroup().getParent().getParent().getName());
+    }
+}
+```
+
+输出结果
+
+```
+main
+system
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "java.lang.ThreadGroup.getName()" because the return value of "java.lang.ThreadGroup.getParent()" is null
+	at com.liulep.ThreadSystemThreadGroupTest.main(ThreadSystemThreadGroupTest.java:12)
+```
+
+可以发现当前运行的线程是属于main线程组的，main线程组的父线程组是system线程组，而system线程组没有父线程组因此出现了异常，所以JVM中的顶级线程组也就是根线程组为system线程组。
+
+#### 1.3.4 向线程组里添加线程组
+
+```java
+/**
+ * 向现有的线程组当中添加线程组
+ */
+public class ThreadGroupAddThreadGroupTest {
+
+    public static void main(String[] args) {
+        ThreadGroup threadGroup = new ThreadGroup("liulep-thread-group");
+        System.out.println("threadGroup线程组中的活跃线程组数量为"+ threadGroup.activeGroupCount());
+        ThreadGroup threadGroup1 = new ThreadGroup(threadGroup, "liuleo-sub-thread-group");
+        System.out.println("threadGroup线程组中的活跃线程组数量为"+ threadGroup.activeGroupCount());
+    }
+
+}
+```
+
+运行结果
+
+```txt
+threadGroup线程组中的活跃线程组数量为0
+threadGroup线程组中的活跃线程组数量为1
+```
+
+#### 1.3.5 获取线程组内的对象
+
+可以通过递归和非递归两种方式来获取线程组的对象
+
+```java
+/**
+ * 获取线程组内的对象
+ */
+public class ThreadGroupQueryObjectTest {
+
+    public static void main(String[] args) {
+        ThreadGroup mainThreadGroup = Thread.currentThread().getThreadGroup();
+        ThreadGroup threadGroup = new ThreadGroup(mainThreadGroup, "threadGroup");
+        ThreadGroup subThreadGroup1 = new ThreadGroup(threadGroup, "subThreadGroup1");
+        ThreadGroup subThreadGroup2 = new ThreadGroup(threadGroup, "subThreadGroup2");
+        ThreadGroup[] threadGroups = new ThreadGroup[mainThreadGroup.activeGroupCount()];
+        //递归获取
+        mainThreadGroup.enumerate(threadGroups, true);
+        Stream.of(threadGroups).forEach(tg -> {
+            if(tg != null){
+                System.out.println("递归获取的线程组 ===> "+ tg.getName());
+            }
+        });
+
+        ThreadGroup[] threadGroups1 = new ThreadGroup[mainThreadGroup.activeGroupCount()];
+        //非递归获取
+        mainThreadGroup.enumerate(threadGroups1, false);
+        Stream.of(threadGroups1).forEach(tg -> {
+            if(tg != null){
+                System.out.println("非递归获取的线程组 ===> "+ tg.getName());
+            }
+        });
+
+    }
+}
+```
+
+输出结果：
+
+```txt
+递归获取的线程组 ===> threadGroup
+递归获取的线程组 ===> subThreadGroup1
+递归获取的线程组 ===> subThreadGroup2
+非递归获取的线程组 ===> threadGroup
+```
+
+可以发现递归将所有的线程组都输出了，但是为什么非递归只有一个输出呢，那是因为非递归输出只能输出子线程组同一层的线程组。
+
+类似于这样
+
+![截屏2023-08-22 15.54.33](https://images.liulep.com/img/2023/08/22/64e469db53924.png)
+
+#### 1.3.6 批量中断线程组内的线程
+
+```java
+/**
+ * 中断线程组中的线程
+ */
+public class ThreadGroupInterruptTest {
+
+    public static void main(String[] args) throws InterruptedException {
+        ThreadGroup threadGroup = new ThreadGroup("threadGroup");
+        System.out.println("创建并启动所有线程组 :" + new Date());
+        IntStream.range(0, 5).forEach(i -> {
+            //将线程都添加到线程组中
+            new Thread(threadGroup, () -> {
+                while(!Thread.currentThread().isInterrupted()){}
+                System.out.println("子线程"+Thread.currentThread().getName()+"被中断 "+ new Date());
+            }).start();
+        });
+        //主线程休眠5秒钟
+        TimeUnit.SECONDS.sleep(5);
+        System.out.println("主线程中断子线程");
+        //使用线程组批量中断线程
+        threadGroup.interrupt();
+    }
+}
+```
+
+输出结果
+
+```txt
+创建并启动所有线程组 :Tue Aug 22 16:03:00 CST 2023
+主线程中断子线程
+子线程Thread-0被中断 Tue Aug 22 16:03:05 CST 2023
+子线程Thread-2被中断 Tue Aug 22 16:03:05 CST 2023
+子线程Thread-1被中断 Tue Aug 22 16:03:05 CST 2023
+子线程Thread-4被中断 Tue Aug 22 16:03:05 CST 2023
+子线程Thread-3被中断 Tue Aug 22 16:03:05 CST 2023
+```
+
+可以发现线程组可以批量中断内部线程
